@@ -41,3 +41,5 @@ uvicorn==0.30.3
 watchfiles==0.22.0
 websockets==12.0
 numpy==2.0.1
+passlib==1.7.4
+bcrypt==4.0.1
