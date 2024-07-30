@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
 import tinytuya
 import sqlitecloud
-from datetime import datetime
+from datetime import datetime, UTC, timedelta
+import numpy as np
 
 load_dotenv(find_dotenv())
 
@@ -45,7 +46,7 @@ async def poll_device():
         current = data["dps"]["18"] / 1000
         power = data["dps"]["19"] / 10
         voltage = data["dps"]["20"] / 10
-        poll_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        poll_datetime = datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')
         logger.info(f"{poll_datetime} | CUR:{current}A VOL:{voltage}V POW:{power}W")
 
         query = f"""
@@ -62,15 +63,17 @@ async def poll_device():
 async def root():
     return {"message": "root"}
 
-@app.get("/data")
-def read_data(start_date: datetime, end_date: datetime):
+@app.get("/api/data")
+def read_data(start_date: datetime | None = None, end_date: datetime | None = None):
     try:
         cursor = conn.cursor()
-
-        query = f"""
-        SELECT * FROM power
-        WHERE poll_datetime >= '{start_date}' AND poll_datetime <= '{end_date}'
-        """
+        query = "SELECT * FROM power "
+        if start_date and end_date:
+            query += f"WHERE poll_datetime >= '{start_date}' AND poll_datetime <= '{end_date}'"
+        elif start_date:
+            query += f"WHERE poll_datetime >= '{start_date}'"
+        elif end_date:
+            query += f"WHERE poll_datetime <= '{end_date}'"
 
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -82,6 +85,42 @@ def read_data(start_date: datetime, end_date: datetime):
                 "voltage": row[2],
                 "current": row[3],
                 "power": row[4],
+            })
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/power-usage")
+def power_usage():
+    try:
+        cursor = conn.cursor()
+        query = f"""
+        SELECT
+            DATE(poll_datetime) AS day,
+            AVG(power) AS average_power
+        FROM
+            power
+        GROUP BY
+            day
+        ORDER BY
+            day;
+        """
+
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        if not rows:
+          return []
+
+        result = []
+        for row in rows:
+            day = row[0]
+            average_power_watts = float(row[1])
+            average_power_kw = average_power_watts / 1000
+            total_energy_kwh = average_power_kw * 24
+            result.append({
+                "day": day,
+                "energy_kwh": total_energy_kwh,
             })
         return result
 
