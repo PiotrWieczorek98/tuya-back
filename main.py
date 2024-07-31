@@ -1,35 +1,29 @@
-import os
 import asyncio
-import logging
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv, find_dotenv
-
-from database import get_db_connection
-from polling import poll_device
+from polling import poll_device, transfer_data_to_hourly, generate_missing_data
 from endpoints import get_router
-
-load_dotenv(find_dotenv())
-
-# Load env
-FREQUENCY = int(os.environ.get("FREQUENCY") or 10)
 
 # Initialize FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Actions to be taken on startup
-    task = asyncio.create_task(poll_device())
+    generate_missing_data_task = asyncio.create_task(generate_missing_data())
+    poll_device_task = asyncio.create_task(poll_device())
+    transfer_data_task = asyncio.create_task(transfer_data_to_hourly())
     yield
 
     # Actions to be taken on shutdown
-    task.cancel()
-    db_conn = get_db_connection()
-    db_conn.close()
-    logger.info('Polling device ended')
+    generate_missing_data_task.cancel()
+    poll_device_task.cancel()
+    transfer_data_task.cancel()
 
 app = FastAPI(lifespan=lifespan) # type: ignore
 app.include_router(get_router())
 
-logger = logging.getLogger('uvicorn.error')
 
 # To run the server, use: uvicorn main:app --reload
+# Or uncomment to run with debugger
+import uvicorn
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
